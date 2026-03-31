@@ -6,10 +6,22 @@ const targetDir = join(process.cwd(), "static", "_libav");
 
 await mkdir(targetDir, { recursive: true });
 
-const modules = await readdir(moduleDir);
+let modules = [];
+try {
+    modules = await readdir(moduleDir);
+} catch (error) {
+    // First-time setup or partial installs may not have @imput yet.
+    console.warn(`[sync-libav] Skipping libav sync: missing directory "${moduleDir}".`);
+    process.exit(0);
+}
+
 const libavModules = modules.filter((name) => name.startsWith("libav.js"));
 
 for (const moduleName of libavModules) {
     const distDir = join(moduleDir, moduleName, "dist");
-    await cp(distDir, targetDir, { recursive: true });
+    try {
+        await cp(distDir, targetDir, { recursive: true });
+    } catch {
+        // Ignore missing dist folders from optional or incomplete package installs.
+    }
 }

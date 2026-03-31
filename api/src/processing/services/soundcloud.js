@@ -150,7 +150,7 @@ export default async function(obj) {
         return { error: "content.paid" };
     }
 
-    if (!json.media?.transcodings || !json.media?.transcodings.length === 0) {
+    if (!json.media?.transcodings || json.media.transcodings.length === 0) {
         return { error: "fetch.empty" };
     }
 
