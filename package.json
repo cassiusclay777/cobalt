@@ -1,6 +1,10 @@
 {
     "name": "cobalt",
     "packageManager": "pnpm@9.6.0",
+    "scripts": {
+        "dev": "pnpm -r --parallel --filter @imput/cobalt-api --filter @imput/cobalt-web run dev",
+        "dev:clean": "powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 9000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { taskkill /PID $_ /T /F | Out-Null }; pnpm dev\""
+    },
     "engines": {
         "pnpm": ">=9"
     }

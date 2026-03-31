@@ -4,7 +4,7 @@ import basicSSL from "@vitejs/plugin-basic-ssl";
 import { glob } from "glob";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { createSitemap } from "svelte-sitemap/src/index";
-import { defineConfig, searchForWorkspaceRoot, type PluginOption } from "vite";
+import { defineConfig, loadEnv, searchForWorkspaceRoot, type PluginOption } from "vite";
 
 import { join, basename } from "node:path";
 import { createReadStream } from "node:fs";
@@ -21,7 +21,10 @@ const exposeLibAV: PluginOption = (() => {
                 const filename = basename(req.url).split('?')[0];
                 if (!filename) return next();
 
-                const [file] = await glob(join(IMPUT_MODULE_DIR, '/**/dist/', filename));
+                const [file] = await glob(`**/dist/${filename}`, {
+                    cwd: IMPUT_MODULE_DIR,
+                    absolute: true
+                });
                 if (!file) return next();
 
                 const fileType = mime.getType(filename);
@@ -88,43 +91,48 @@ const checkDefaultApiEnv = (): PluginOption => ({
     },
 });
 
-export default defineConfig({
-    plugins: [
-        checkDefaultApiEnv(),
-        basicSSL(),
-        sveltekit(),
-        enableCOEP,
-        exposeLibAV,
-        generateSitemap
-    ],
-    build: {
-        sourcemap: true,
-        rollupOptions: {
-            output: {
-                manualChunks: (id) => {
-                    if (id.includes('/web/i18n') && id.endsWith('.json')) {
-                        const lang = id.split('/web/i18n/')?.[1].split('/')?.[0];
-                        if (lang) {
-                            return `i18n_${lang}`;
+export default defineConfig(({ mode }) => {
+    const env = loadEnv(mode, process.cwd(), "");
+    process.env.WEB_DEFAULT_API ||= env.WEB_DEFAULT_API || env.VITE_API_URL;
+
+    return {
+        plugins: [
+            checkDefaultApiEnv(),
+            basicSSL(),
+            exposeLibAV,
+            sveltekit(),
+            enableCOEP,
+            generateSitemap
+        ],
+        build: {
+            sourcemap: true,
+            rollupOptions: {
+                output: {
+                    manualChunks: (id) => {
+                        if (id.includes('/web/i18n') && id.endsWith('.json')) {
+                            const lang = id.split('/web/i18n/')?.[1].split('/')?.[0];
+                            if (lang) {
+                                return `i18n_${lang}`;
+                            }
                         }
                     }
                 }
             }
-        }
-    },
-    server: {
-        headers: {
-            "Cross-Origin-Opener-Policy": "same-origin",
-            "Cross-Origin-Embedder-Policy": "require-corp"
         },
-        fs: {
-            allow: [
-                searchForWorkspaceRoot(process.cwd())
-            ]
+        server: {
+            headers: {
+                "Cross-Origin-Opener-Policy": "same-origin",
+                "Cross-Origin-Embedder-Policy": "require-corp"
+            },
+            fs: {
+                allow: [
+                    searchForWorkspaceRoot(process.cwd())
+                ]
+            },
+            proxy: {}
         },
-        proxy: {}
-    },
-    optimizeDeps: {
-        exclude: ["@imput/libav.js-remux-cli"]
-    },
+        optimizeDeps: {
+            exclude: ["@imput/libav.js-remux-cli"]
+        },
+    };
 });

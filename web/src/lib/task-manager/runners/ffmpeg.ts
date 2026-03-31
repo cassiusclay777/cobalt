@@ -20,6 +20,16 @@ export const runFFmpegWorker = async (
     resetStartCounter = false,
 ) => {
     const worker = new FFmpegWorker();
+    const WATCHDOG_TIMEOUT_MS = 180000;
+
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const resetWatchdog = () => {
+        if (watchdog) clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+            killWorker(worker, unsubscribe, startCheck);
+            itemError(parentId, workerId, "queue.ffmpeg.crashed");
+        }, WATCHDOG_TIMEOUT_MS);
+    };
 
     // sometimes chrome refuses to start libav wasm,
     // so we check if it started, try 10 more times if not, and kill self if it still doesn't work
@@ -49,6 +59,7 @@ export const runFFmpegWorker = async (
 
     const unsubscribe = queue.subscribe((queue: CobaltQueue) => {
         if (!queue[parentId]) {
+            if (watchdog) clearTimeout(watchdog);
             killWorker(worker, unsubscribe, startCheck);
         }
     });
@@ -62,9 +73,11 @@ export const runFFmpegWorker = async (
             yesthreads,
         }
     });
+    resetWatchdog();
 
     worker.onerror = (e) => {
         console.error("ffmpeg worker crashed:", e);
+        if (watchdog) clearTimeout(watchdog);
         killWorker(worker, unsubscribe, startCheck);
 
         return itemError(parentId, workerId, "queue.generic_error");
@@ -77,6 +90,7 @@ export const runFFmpegWorker = async (
         if (!eventData) return;
 
         clearInterval(startCheck);
+        resetWatchdog();
 
         if (eventData.progress) {
             if (eventData.progress.duration) {
@@ -90,6 +104,7 @@ export const runFFmpegWorker = async (
         }
 
         if (eventData.render) {
+            if (watchdog) clearTimeout(watchdog);
             killWorker(worker, unsubscribe, startCheck);
             return pipelineTaskDone(
                 parentId,
@@ -99,6 +114,7 @@ export const runFFmpegWorker = async (
         }
 
         if (eventData.error) {
+            if (watchdog) clearTimeout(watchdog);
             killWorker(worker, unsubscribe, startCheck);
             return itemError(parentId, workerId, eventData.error);
         }

@@ -8,9 +8,20 @@ import type { CobaltQueue, UUID } from "$lib/types/queue";
 
 export const runFetchWorker = async (workerId: UUID, parentId: UUID, url: string) => {
     const worker = new FetchWorker();
+    const WATCHDOG_TIMEOUT_MS = 120000;
+
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const resetWatchdog = () => {
+        if (watchdog) clearTimeout(watchdog);
+        watchdog = setTimeout(() => {
+            killWorker(worker, unsubscribe);
+            itemError(parentId, workerId, "queue.fetch.network_error");
+        }, WATCHDOG_TIMEOUT_MS);
+    };
 
     const unsubscribe = queue.subscribe((queue: CobaltQueue) => {
         if (!queue[parentId]) {
+            if (watchdog) clearTimeout(watchdog);
             killWorker(worker, unsubscribe);
         }
     });
@@ -20,10 +31,12 @@ export const runFetchWorker = async (workerId: UUID, parentId: UUID, url: string
             url
         }
     });
+    resetWatchdog();
 
     worker.onmessage = (event) => {
         const eventData = event.data.cobaltFetchWorker;
         if (!eventData) return;
+        resetWatchdog();
 
         if (eventData.progress) {
             updateWorkerProgress(workerId, {
@@ -33,6 +46,7 @@ export const runFetchWorker = async (workerId: UUID, parentId: UUID, url: string
         }
 
         if (eventData.result) {
+            if (watchdog) clearTimeout(watchdog);
             killWorker(worker, unsubscribe);
             return pipelineTaskDone(
                 parentId,
@@ -42,6 +56,7 @@ export const runFetchWorker = async (workerId: UUID, parentId: UUID, url: string
         }
 
         if (eventData.error) {
+            if (watchdog) clearTimeout(watchdog);
             killWorker(worker, unsubscribe);
             return itemError(parentId, workerId, eventData.error);
         }

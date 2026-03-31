@@ -9,6 +9,7 @@
         "node": ">=18"
     },
     "scripts": {
+        "dev": "node src/cobalt",
         "start": "node src/cobalt",
         "test": "node src/util/test",
         "token:jwt": "node src/util/generate-jwt-secret"

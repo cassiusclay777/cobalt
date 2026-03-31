@@ -6,30 +6,60 @@ const cachedID = {
     id: ''
 }
 
+const extractClientId = (content) => {
+    if (!content) {
+        return;
+    }
+
+    const patterns = [
+        /\("client_id=([A-Za-z0-9]{32})"\)/,
+        /\bclient_id=([A-Za-z0-9]{32})\b/,
+        /client_id["']?\s*[:=]\s*["']([A-Za-z0-9]{32})["']/,
+    ];
+
+    for (const pattern of patterns) {
+        const match = content.match(pattern);
+        if (match?.[1]) {
+            return match[1];
+        }
+    }
+}
+
 async function findClientID() {
     try {
         const sc = await fetch('https://soundcloud.com/').then(r => r.text()).catch(() => {});
-        const scVersion = String(sc.match(/<script>window\.__sc_version="[0-9]{10}"<\/script>/)[0].match(/[0-9]{10}/));
+        if (!sc) {
+            return;
+        }
+
+        const versionMatch = sc.match(/<script>window\.__sc_version="[0-9]{10}"<\/script>/);
+        const scVersion = versionMatch?.[0]?.match(/[0-9]{10}/)?.[0];
+        if (!scVersion) {
+            return;
+        }
 
         if (cachedID.version === scVersion) {
             return cachedID.id;
         }
 
-        const scripts = sc.matchAll(/<script.+src="(.+)">/g);
+        const scripts = sc.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*>/g);
 
         let clientid;
         for (let script of scripts) {
-            const url = script[1];
+            const url = new URL(script[1], "https://soundcloud.com/").toString();
 
-            if (!url?.startsWith('https://a-v2.sndcdn.com/')) {
-                return;
+            if (!url?.includes('sndcdn.com/')) {
+                continue;
             }
 
             const scrf = await fetch(url).then(r => r.text()).catch(() => {});
-            const id = scrf.match(/\("client_id=[A-Za-z0-9]{32}"\)/);
+            if (!scrf) {
+                continue;
+            }
 
-            if (id && typeof id[0] === 'string') {
-                clientid = id[0].match(/[A-Za-z0-9]{32}/)[0];
+            const id = extractClientId(scrf);
+            if (id) {
+                clientid = id;
                 break;
             }
         }
@@ -62,9 +92,6 @@ const findBestForPreset = (transcodings, preset) => {
 }
 
 export default async function(obj) {
-    const clientId = await findClientID();
-    if (!clientId) return { error: "fetch.fail" };
-
     let link;
 
     if (obj.shortLink) {
@@ -86,11 +113,29 @@ export default async function(obj) {
     if (!link && obj.shortLink) return { error: "fetch.short_link" };
     if (!link) return { error: "link.unsupported" };
 
-    const resolveURL = new URL("https://api-v2.soundcloud.com/resolve");
-    resolveURL.searchParams.set("url", link);
-    resolveURL.searchParams.set("client_id", clientId);
+    let clientId = await findClientID();
+    if (!clientId) return { error: "fetch.fail" };
 
-    const json = await fetch(resolveURL).then(r => r.json()).catch(() => {});
+    const resolveTrack = async (id) => {
+        const resolveURL = new URL("https://api-v2.soundcloud.com/resolve");
+        resolveURL.searchParams.set("url", link);
+        resolveURL.searchParams.set("client_id", id);
+        return fetch(resolveURL).then(r => r.json()).catch(() => {});
+    };
+
+    let json = await resolveTrack(clientId);
+    const invalidClientId = json?.errors?.some(e =>
+        e?.error_message?.toLowerCase()?.includes("client_id")
+    );
+
+    if (invalidClientId) {
+        cachedID.version = '';
+        cachedID.id = '';
+        clientId = await findClientID();
+        if (!clientId) return { error: "fetch.fail" };
+        json = await resolveTrack(clientId);
+    }
+
     if (!json) return { error: "fetch.fail" };
 
     if (json.duration > env.durationLimit * 1000) {

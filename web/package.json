@@ -4,7 +4,9 @@
     "type": "module",
     "private": true,
     "scripts": {
+        "predev": "node scripts/sync-libav.mjs && svelte-kit sync",
         "dev": "vite dev",
+        "prebuild": "node scripts/sync-libav.mjs && svelte-kit sync",
         "build": "vite build",
         "preview": "vite preview",
         "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
